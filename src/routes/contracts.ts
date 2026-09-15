@@ -10,7 +10,7 @@ export const contractsRouter = Router();
 contractsRouter.use(authenticate);
 
 const contractForUser = async (id: string, userId: string) => {
-  const contract = await prisma.contract.findUnique({ where: { id }, include: { milestones: { include: { submissions: true }, orderBy: { sortOrder: "asc" } }, events: { orderBy: { createdAt: "desc" } }, job: true } });
+  const contract = await prisma.contract.findUnique({ where: { id }, include: { milestones: { include: { submissions: true }, orderBy: { sortOrder: "asc" } }, events: { orderBy: { createdAt: "desc" } }, job: true, client: { select: { id: true, displayName: true } }, freelancer: { select: { id: true, displayName: true } } } });
   invariant(contract && (contract.clientId === userId || contract.freelancerId === userId), 404, "CONTRACT_NOT_FOUND", "Contract not found.");
   return contract;
 };
