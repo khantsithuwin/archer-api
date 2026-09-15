@@ -1,0 +1,311 @@
+openapi: 3.1.0
+info:
+  title: Archer API
+  version: 0.1.0
+  description: API for the Archer freelance marketplace. Amounts use integer minor units; Archer does not process payments.
+servers:
+  - url: http://localhost:4000/api/v1
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Profiles
+  - name: Jobs
+  - name: Proposals
+  - name: Contracts
+  - name: Messaging
+  - name: Notifications
+  - name: Reviews
+  - name: Reports
+  - name: Admin
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Process liveness
+      responses: { "200": { description: Process is alive } }
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Database readiness
+      responses: { "200": { description: API and database are ready } }
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register an account
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RegisterInput" } } } }
+      responses: { "201": { description: Registered }, "409": { $ref: "#/components/responses/Conflict" }, "422": { $ref: "#/components/responses/ValidationError" } }
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Start a session
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LoginInput" } } } }
+      responses: { "200": { description: Authenticated }, "401": { $ref: "#/components/responses/Unauthenticated" } }
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Rotate a refresh token
+      responses: { "200": { description: Token rotated }, "401": { $ref: "#/components/responses/Unauthenticated" } }
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      security: [{ bearerAuth: [] }]
+      summary: Revoke the current session
+      responses: { "204": { description: Logged out } }
+  /auth/logout-all:
+    post:
+      tags: [Authentication]
+      security: [{ bearerAuth: [] }]
+      summary: Revoke every account session
+      responses: { "204": { description: Logged out everywhere } }
+  /auth/me:
+    get:
+      tags: [Authentication]
+      security: [{ bearerAuth: [] }]
+      summary: Get the current account and profiles
+      responses: { "200": { description: Current account }, "401": { $ref: "#/components/responses/Unauthenticated" } }
+  /auth/verify-email:
+    post:
+      tags: [Authentication]
+      summary: Verify an email token
+      responses: { "204": { description: Email verified } }
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request password reset
+      responses: { "200": { description: Generic accepted response } }
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset password and revoke sessions
+      responses: { "204": { description: Password reset } }
+  /client-profile:
+    put:
+      tags: [Profiles]
+      security: [{ bearerAuth: [] }]
+      summary: Create or replace the current client profile
+      responses: { "200": { description: Client profile } }
+  /freelancer-profile:
+    put:
+      tags: [Profiles]
+      security: [{ bearerAuth: [] }]
+      summary: Create or replace the current freelancer profile
+      responses: { "200": { description: Freelancer profile } }
+  /freelancers:
+    get:
+      tags: [Profiles]
+      summary: Discover freelancers
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: skill, in: query, schema: { type: string } }
+        - { name: currency, in: query, schema: { $ref: "#/components/schemas/Currency" } }
+      responses: { "200": { description: Paginated freelancers } }
+  /freelancers/{username}:
+    get:
+      tags: [Profiles]
+      summary: Get a public freelancer profile
+      parameters: [{ $ref: "#/components/parameters/Username" }]
+      responses: { "200": { description: Freelancer profile }, "404": { $ref: "#/components/responses/NotFound" } }
+  /categories:
+    get:
+      tags: [Jobs]
+      summary: List categories and skills
+      responses: { "200": { description: Taxonomy } }
+  /jobs:
+    get:
+      tags: [Jobs]
+      summary: Discover open jobs
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: skill, in: query, schema: { type: string } }
+        - { name: workType, in: query, schema: { $ref: "#/components/schemas/WorkType" } }
+        - { name: currency, in: query, schema: { $ref: "#/components/schemas/Currency" } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses: { "200": { description: Paginated jobs } }
+    post:
+      tags: [Jobs]
+      security: [{ bearerAuth: [] }]
+      summary: Create a draft job
+      responses: { "201": { description: Job created } }
+  /jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      summary: Get a public job
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "200": { description: Job }, "404": { $ref: "#/components/responses/NotFound" } }
+    patch:
+      tags: [Jobs]
+      security: [{ bearerAuth: [] }]
+      summary: Update an owned job
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "200": { description: Updated job } }
+  /jobs/{jobId}/publish:
+    post:
+      tags: [Jobs]
+      security: [{ bearerAuth: [] }]
+      summary: Publish a draft job
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "200": { description: Published job } }
+  /jobs/{jobId}/saved:
+    put:
+      tags: [Jobs]
+      security: [{ bearerAuth: [] }]
+      summary: Save a job
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "204": { description: Saved } }
+    delete:
+      tags: [Jobs]
+      security: [{ bearerAuth: [] }]
+      summary: Unsave a job
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "204": { description: Removed } }
+  /jobs/{jobId}/proposals:
+    get:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: List proposals for an owned job
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "200": { description: Proposals } }
+    post:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Submit a proposal
+      parameters: [{ $ref: "#/components/parameters/JobId" }]
+      responses: { "201": { description: Proposal submitted } }
+  /proposals/{proposalId}/accept:
+    post:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Accept a proposal and create a contract offer
+      parameters: [{ $ref: "#/components/parameters/ProposalId" }]
+      responses: { "201": { description: Contract offered } }
+  /contracts:
+    get:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: List current user's contracts
+      responses: { "200": { description: Contracts } }
+  /contracts/{contractId}:
+    get:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Get a contract workspace
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      responses: { "200": { description: Contract } }
+  /contracts/{contractId}/accept:
+    post:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Accept a contract offer
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      responses: { "200": { description: Active contract } }
+  /contracts/{contractId}/complete:
+    post:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Request or finalize completion
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      responses: { "200": { description: Updated contract } }
+  /milestones/{milestoneId}/submit:
+    post:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Submit milestone deliverables
+      parameters: [{ $ref: "#/components/parameters/MilestoneId" }]
+      responses: { "201": { description: Submission created } }
+  /milestones/{milestoneId}/review:
+    post:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Approve a submission or request changes
+      parameters: [{ $ref: "#/components/parameters/MilestoneId" }]
+      responses: { "200": { description: Milestone updated } }
+  /conversations:
+    get:
+      tags: [Messaging]
+      security: [{ bearerAuth: [] }]
+      summary: List conversations
+      responses: { "200": { description: Conversations } }
+    post:
+      tags: [Messaging]
+      security: [{ bearerAuth: [] }]
+      summary: Start an eligible conversation
+      responses: { "201": { description: Conversation created } }
+  /conversations/{conversationId}/messages:
+    get:
+      tags: [Messaging]
+      security: [{ bearerAuth: [] }]
+      summary: List messages
+      parameters: [{ $ref: "#/components/parameters/ConversationId" }]
+      responses: { "200": { description: Messages } }
+    post:
+      tags: [Messaging]
+      security: [{ bearerAuth: [] }]
+      summary: Send a message
+      parameters: [{ $ref: "#/components/parameters/ConversationId" }]
+      responses: { "201": { description: Message sent } }
+  /notifications:
+    get:
+      tags: [Notifications]
+      security: [{ bearerAuth: [] }]
+      summary: List current user's notifications
+      responses: { "200": { description: Notifications } }
+  /contracts/{contractId}/reviews:
+    post:
+      tags: [Reviews]
+      security: [{ bearerAuth: [] }]
+      summary: Review the other contract party
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      responses: { "201": { description: Review created } }
+  /reports:
+    post:
+      tags: [Reports]
+      security: [{ bearerAuth: [] }]
+      summary: Report content or a user
+      responses: { "201": { description: Report created } }
+  /admin/metrics:
+    get:
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      summary: Get platform counts
+      responses: { "200": { description: Metrics }, "403": { $ref: "#/components/responses/Forbidden" } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    Username: { name: username, in: path, required: true, schema: { type: string } }
+    JobId: { name: jobId, in: path, required: true, schema: { type: string } }
+    ProposalId: { name: proposalId, in: path, required: true, schema: { type: string } }
+    ContractId: { name: contractId, in: path, required: true, schema: { type: string } }
+    MilestoneId: { name: milestoneId, in: path, required: true, schema: { type: string } }
+    ConversationId: { name: conversationId, in: path, required: true, schema: { type: string } }
+  schemas:
+    Currency: { type: string, enum: [USD, MMK] }
+    WorkType: { type: string, enum: [FIXED_PRICE, HOURLY] }
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+    RegisterInput:
+      allOf:
+        - { $ref: "#/components/schemas/LoginInput" }
+        - type: object
+          required: [displayName, modes]
+          properties:
+            displayName: { type: string, minLength: 2, maxLength: 80 }
+            modes: { type: array, minItems: 1, maxItems: 2, items: { type: string, enum: [CLIENT, FREELANCER] } }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties: { code: { type: string }, message: { type: string }, fields: { type: object, additionalProperties: { type: array, items: { type: string } } }, requestId: { type: string } }
+  responses:
+    ValidationError: { description: Validation failed, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Unauthenticated: { description: Authentication required, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Forbidden: { description: Insufficient permission, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    NotFound: { description: Resource not found, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Conflict: { description: Resource conflict, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }

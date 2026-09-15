@@ -1,0 +1,476 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum UserMode {
+  CLIENT
+  FREELANCER
+  ADMIN
+}
+
+enum ExperienceLevel {
+  ENTRY
+  INTERMEDIATE
+  EXPERT
+}
+
+enum Availability {
+  AVAILABLE
+  LIMITED
+  UNAVAILABLE
+}
+
+enum Currency {
+  USD
+  MMK
+}
+
+enum WorkType {
+  FIXED_PRICE
+  HOURLY
+}
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  PAUSED
+  CLOSED
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+  HIDDEN
+}
+
+enum ProposalStatus {
+  SUBMITTED
+  SHORTLISTED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum ContractStatus {
+  PENDING_ACCEPTANCE
+  ACTIVE
+  COMPLETION_REQUESTED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+  CANCELLED
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportTargetType {
+  USER
+  JOB
+  MESSAGE
+  PORTFOLIO_ITEM
+  REVIEW
+}
+
+enum NotificationType {
+  PROPOSAL
+  CONTRACT
+  MILESTONE
+  MESSAGE
+  REVIEW
+  MODERATION
+}
+
+model User {
+  id                 String            @id @default(cuid())
+  email              String            @unique
+  passwordHash       String
+  displayName        String
+  avatarUrl          String?
+  country            String?
+  city               String?
+  timezone           String            @default("UTC")
+  languagesJson      String            @default("[]")
+  status             AccountStatus     @default(ACTIVE)
+  emailVerifiedAt    DateTime?
+  tokenVersion       Int               @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  modes              UserModeRecord[]
+  sessions           Session[]
+  clientProfile      ClientProfile?
+  freelancerProfile  FreelancerProfile?
+  jobs               Job[]
+  proposals          Proposal[]
+  savedJobs          SavedJob[]
+  clientContracts    Contract[]         @relation("ClientContracts")
+  freelancerContracts Contract[]        @relation("FreelancerContracts")
+  conversationLinks  ConversationParticipant[]
+  messages           Message[]
+  messageReads       MessageRead[]
+  reviewsWritten     Review[]            @relation("ReviewsWritten")
+  reviewsReceived    Review[]            @relation("ReviewsReceived")
+  notifications      Notification[]
+  reports            Report[]            @relation("ReportsCreated")
+  adminActions       AdminAuditLog[]      @relation("AdminActions")
+}
+
+model UserModeRecord {
+  userId String
+  mode   UserMode
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([userId, mode])
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  familyId         String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, revokedAt])
+  @@index([familyId])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model ClientProfile {
+  userId       String   @id
+  companyName  String?
+  overview     String?
+  industry     String?
+  website      String?
+  isCompany    Boolean  @default(false)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FreelancerProfile {
+  userId          String          @id
+  username        String          @unique
+  title           String
+  overview        String
+  hourlyRateMinor Int?
+  rateCurrency    Currency?
+  experienceLevel ExperienceLevel @default(INTERMEDIATE)
+  availability    Availability    @default(AVAILABLE)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills           FreelancerSkill[]
+  portfolioItems   PortfolioItem[]
+}
+
+model PortfolioItem {
+  id           String            @id @default(cuid())
+  freelancerId String
+  title        String
+  description  String
+  projectUrl   String?
+  imageUrlsJson String           @default("[]")
+  createdAt    DateTime          @default(now())
+  freelancer   FreelancerProfile @relation(fields: [freelancerId], references: [userId], onDelete: Cascade)
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String   @unique
+  description String?
+  jobs        Job[]
+  skills      Skill[]
+}
+
+model Skill {
+  id          String            @id @default(cuid())
+  slug        String            @unique
+  name        String            @unique
+  categoryId  String?
+  category    Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  freelancers FreelancerSkill[]
+  jobs        JobSkill[]
+}
+
+model FreelancerSkill {
+  freelancerId String
+  skillId      String
+  freelancer   FreelancerProfile @relation(fields: [freelancerId], references: [userId], onDelete: Cascade)
+  skill        Skill             @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  @@id([freelancerId, skillId])
+}
+
+model Job {
+  id                    String          @id @default(cuid())
+  clientId              String
+  categoryId            String
+  title                 String
+  description           String
+  workType              WorkType
+  currency              Currency
+  budgetMinMinor        Int?
+  budgetMaxMinor        Int?
+  experienceLevel       ExperienceLevel
+  estimatedDuration     String?
+  applicationDeadline   DateTime?
+  status                JobStatus       @default(DRAFT)
+  publishedAt           DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  client                User            @relation(fields: [clientId], references: [id])
+  category              Category        @relation(fields: [categoryId], references: [id])
+  skills                JobSkill[]
+  proposals             Proposal[]
+  savedBy               SavedJob[]
+  contracts             Contract[]
+  conversations         Conversation[]
+  @@index([status, publishedAt])
+  @@index([categoryId, status])
+  @@index([clientId, status])
+}
+
+model JobSkill {
+  jobId   String
+  skillId String
+  job     Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  skill   Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  @@id([jobId, skillId])
+  @@index([skillId])
+}
+
+model SavedJob {
+  userId    String
+  jobId     String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  @@id([userId, jobId])
+}
+
+model Proposal {
+  id                String         @id @default(cuid())
+  jobId             String
+  freelancerId      String
+  coverLetter       String
+  amountMinor       Int
+  currency          Currency
+  estimatedDuration String?
+  status            ProposalStatus @default(SUBMITTED)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  job               Job            @relation(fields: [jobId], references: [id])
+  freelancer        User           @relation(fields: [freelancerId], references: [id])
+  milestones        ProposalMilestone[]
+  contract          Contract?
+  @@unique([jobId, freelancerId])
+  @@index([freelancerId, status])
+  @@index([jobId, status])
+}
+
+model ProposalMilestone {
+  id          String   @id @default(cuid())
+  proposalId  String
+  title       String
+  amountMinor Int
+  dueAt       DateTime?
+  sortOrder   Int
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+model Contract {
+  id             String         @id @default(cuid())
+  jobId          String
+  proposalId     String         @unique
+  clientId       String
+  freelancerId   String
+  title          String
+  workType       WorkType
+  currency       Currency
+  amountMinor    Int
+  termsSnapshot  String
+  status         ContractStatus @default(PENDING_ACCEPTANCE)
+  acceptedAt     DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  job            Job            @relation(fields: [jobId], references: [id])
+  proposal       Proposal       @relation(fields: [proposalId], references: [id])
+  client         User           @relation("ClientContracts", fields: [clientId], references: [id])
+  freelancer     User           @relation("FreelancerContracts", fields: [freelancerId], references: [id])
+  milestones     Milestone[]
+  events         ContractEvent[]
+  reviews        Review[]
+  @@index([clientId, status])
+  @@index([freelancerId, status])
+}
+
+model Milestone {
+  id          String          @id @default(cuid())
+  contractId  String
+  title       String
+  description String?
+  amountMinor Int
+  dueAt       DateTime?
+  sortOrder   Int
+  status      MilestoneStatus @default(PENDING)
+  contract    Contract        @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  submissions MilestoneSubmission[]
+  @@index([contractId, sortOrder])
+}
+
+model MilestoneSubmission {
+  id              String    @id @default(cuid())
+  milestoneId     String
+  submittedById   String
+  message         String
+  deliverablesJson String   @default("[]")
+  createdAt       DateTime  @default(now())
+  milestone       Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+}
+
+model ContractEvent {
+  id          String   @id @default(cuid())
+  contractId  String
+  actorId     String
+  type        String
+  detailsJson String   @default("{}")
+  createdAt   DateTime @default(now())
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  @@index([contractId, createdAt])
+}
+
+model Conversation {
+  id           String                    @id @default(cuid())
+  jobId        String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  job          Job?                      @relation(fields: [jobId], references: [id])
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  attachmentsJson String      @default("[]")
+  hiddenAt       DateTime?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id])
+  reads          MessageRead[]
+  @@index([conversationId, createdAt])
+}
+
+model MessageRead {
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([messageId, userId])
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  contractId  String
+  reviewerId  String
+  revieweeId  String
+  rating      Int
+  feedback    String?
+  visibleAt   DateTime?
+  createdAt   DateTime @default(now())
+  contract    Contract @relation(fields: [contractId], references: [id])
+  reviewer    User     @relation("ReviewsWritten", fields: [reviewerId], references: [id])
+  reviewee    User     @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  @@unique([contractId, reviewerId])
+  @@index([revieweeId, visibleAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  dataJson  String           @default("{}")
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, readAt, createdAt])
+}
+
+model Report {
+  id          String           @id @default(cuid())
+  reporterId  String
+  targetType  ReportTargetType
+  targetId    String
+  reason      String
+  details     String?
+  status      ReportStatus     @default(OPEN)
+  internalNote String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  reporter    User             @relation("ReportsCreated", fields: [reporterId], references: [id])
+  @@index([status, createdAt])
+}
+
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminId     String
+  action      String
+  targetType  String
+  targetId    String
+  detailsJson String   @default("{}")
+  createdAt   DateTime @default(now())
+  admin       User     @relation("AdminActions", fields: [adminId], references: [id])
+  @@index([adminId, createdAt])
+}
