@@ -9,7 +9,7 @@ const schema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32).default("development-refresh-secret-change-me-now"),
   ACCESS_TOKEN_TTL: z.string().default("15m"),
   REFRESH_TOKEN_TTL: z.string().default("30d"),
-  CORS_ORIGINS: z.string().default("http://localhost:5173,http://localhost:8081"),
+  CORS_ORIGINS: z.string().default("http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081"),
   LOG_LEVEL: z.string().default("info"),
 });
 
