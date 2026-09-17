@@ -32,6 +32,12 @@ jobsRouter.get("/client/jobs", authenticate, requireMode("CLIENT"), asyncHandler
   res.json({ data: await prisma.job.findMany({ where: { clientId: req.auth!.userId }, include: { category: true, skills: { include: { skill: true } }, _count: { select: { proposals: true } } }, orderBy: { updatedAt: "desc" } }) });
 }));
 
+jobsRouter.get("/client/jobs/:jobId", authenticate, requireMode("CLIENT"), asyncHandler(async (req, res) => {
+  const job = await prisma.job.findFirst({ where: { id: routeParam(req.params.jobId), clientId: req.auth!.userId }, include: { category: true, skills: { include: { skill: true } }, _count: { select: { proposals: true } } } });
+  invariant(job, 404, "JOB_NOT_FOUND", "Job not found.");
+  res.json({ data: job });
+}));
+
 jobsRouter.get("/jobs/:jobId", asyncHandler(async (req, res) => {
   const job = await prisma.job.findFirst({ where: { id: routeParam(req.params.jobId), status: { notIn: ["DRAFT", "HIDDEN"] } }, include: { category: true, skills: { include: { skill: true } }, client: { select: { id: true, displayName: true, avatarUrl: true, country: true, createdAt: true } }, _count: { select: { proposals: true } } } });
   invariant(job, 404, "JOB_NOT_FOUND", "Job not found.");

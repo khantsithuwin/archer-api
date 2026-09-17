@@ -52,3 +52,5 @@ npm run seed:full
 - Admin: metrics, report resolution, user suspension/restoration, and audit logging.
 
 Amounts are integers: USD is stored in cents and MMK in whole kyat. Archer records contract terms and approvals but does not process payments.
+
+Client job management uses `GET /client/jobs` and `GET /client/jobs/:jobId`, which include the owner's private drafts. Public `GET /jobs/:jobId` does not expose drafts. Clients create with `POST /jobs`, edit with `PATCH /jobs/:jobId`, publish with `POST /jobs/:jobId/publish`, and close with `POST /jobs/:jobId/close`.

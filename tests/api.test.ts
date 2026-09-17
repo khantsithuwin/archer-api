@@ -36,3 +36,50 @@ describe("Archer API", () => {
     expect(response.body.meta.total).toBeGreaterThan(0);
   });
 });
+
+describe("client job lifecycle", () => {
+  it("keeps drafts private, lets the owner edit and publish, then close", async () => {
+    const login = async (email: string) => {
+      const response = await request(app).post("/api/v1/auth/login").send({ email, password: "ArcherDemo123!" });
+      expect(response.status).toBe(200);
+      return response.body.data.accessToken as string;
+    };
+    const ownerToken = await login("client1@archer.local");
+    const otherToken = await login("client2@archer.local");
+    const freelancerToken = await login("freelancer1@archer.local");
+    const categories = await request(app).get("/api/v1/categories");
+    const category = categories.body.data[0] as { id: string; skills: { id: string }[] };
+    expect(category.skills.length).toBeGreaterThan(0);
+    const created = await request(app).post("/api/v1/jobs").set("authorization", `Bearer ${ownerToken}`).send({
+      title: "Build a research dashboard", description: "Create a clear research dashboard for a small product team with tested, maintainable code.",
+      categoryId: category.id, skillIds: [category.skills[0]!.id], workType: "FIXED_PRICE", currency: "USD",
+      budgetMinMinor: 12505, budgetMaxMinor: 25000, experienceLevel: "INTERMEDIATE",
+    });
+    expect(created.status).toBe(201);
+    const jobId = created.body.data.id as string;
+    try {
+      const owned = await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${ownerToken}`);
+      expect(owned.status).toBe(200);
+      expect(owned.body.data.status).toBe("DRAFT");
+      expect((await request(app).get(`/api/v1/jobs/${jobId}`)).status).toBe(404);
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`)).status).toBe(401);
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${freelancerToken}`)).status).toBe(403);
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${otherToken}`)).status).toBe(404);
+      expect((await request(app).patch(`/api/v1/jobs/${jobId}`).set("authorization", `Bearer ${otherToken}`).send({ title: "Unauthorized update" })).status).toBe(404);
+      const edited = await request(app).patch(`/api/v1/jobs/${jobId}`).set("authorization", `Bearer ${ownerToken}`).send({ title: "Build a better research dashboard", budgetMaxMinor: 30000 });
+      expect(edited.status).toBe(200);
+      expect(edited.body.data.title).toBe("Build a better research dashboard");
+      const published = await request(app).post(`/api/v1/jobs/${jobId}/publish`).set("authorization", `Bearer ${ownerToken}`).send({});
+      expect(published.status).toBe(200);
+      expect(published.body.data.status).toBe("OPEN");
+      expect((await request(app).post(`/api/v1/jobs/${jobId}/publish`).set("authorization", `Bearer ${ownerToken}`).send({})).status).toBe(409);
+      const publicJob = await request(app).get(`/api/v1/jobs/${jobId}`);
+      expect(publicJob.status).toBe(200);
+      expect(publicJob.body.data.budgetMinMinor).toBe(12505);
+      expect((await request(app).post(`/api/v1/jobs/${jobId}/close`).set("authorization", `Bearer ${ownerToken}`).send({})).status).toBe(204);
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${ownerToken}`)).body.data.status).toBe("CLOSED");
+    } finally {
+      await prisma.job.delete({ where: { id: jobId } });
+    }
+  });
+});
