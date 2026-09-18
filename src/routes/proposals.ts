@@ -9,7 +9,7 @@ import { authenticate, requireMode } from "../middleware/auth.js";
 export const proposalsRouter = Router();
 
 proposalsRouter.post("/jobs/:jobId/proposals", authenticate, requireMode("FREELANCER"), asyncHandler(async (req, res) => {
-  const input = z.object({ coverLetter: z.string().trim().min(40).max(5000), amountMinor: z.number().int().positive(), estimatedDuration: z.string().trim().max(80).nullable().optional(), milestones: z.array(z.object({ title: z.string().trim().min(2).max(120), amountMinor: z.number().int().positive(), dueAt: z.coerce.date().nullable().optional() })).max(20).default([]) }).parse(req.body);
+  const input = z.object({ coverLetter: z.string().trim().min(40).max(5000), amountMinor: z.number().int().positive().max(2_000_000_000), estimatedDuration: z.string().trim().max(80).nullable().optional(), milestones: z.array(z.object({ title: z.string().trim().min(2).max(120), amountMinor: z.number().int().positive().max(2_000_000_000), dueAt: z.coerce.date().nullable().optional() })).max(20).default([]) }).parse(req.body);
   const job = await prisma.job.findUnique({ where: { id: routeParam(req.params.jobId) } });
   invariant(job && job.status === "OPEN", 404, "JOB_NOT_FOUND", "Open job not found.");
   invariant(job.clientId !== req.auth!.userId, 403, "OWN_JOB", "You cannot propose to your own job.");
@@ -28,8 +28,14 @@ proposalsRouter.get("/proposals", authenticate, requireMode("FREELANCER"), async
   res.json({ data: await prisma.proposal.findMany({ where: { freelancerId: req.auth!.userId }, include: { job: { include: { category: true } }, milestones: true, contract: true }, orderBy: { createdAt: "desc" } }) });
 }));
 
+proposalsRouter.get("/proposals/:proposalId", authenticate, requireMode("FREELANCER"), asyncHandler(async (req, res) => {
+  const proposal = await prisma.proposal.findFirst({ where: { id: routeParam(req.params.proposalId), freelancerId: req.auth!.userId }, include: { job: { include: { category: true } }, milestones: true, contract: true } });
+  invariant(proposal, 404, "PROPOSAL_NOT_FOUND", "Proposal not found.");
+  res.json({ data: proposal });
+}));
+
 proposalsRouter.patch("/proposals/:proposalId", authenticate, requireMode("FREELANCER"), asyncHandler(async (req, res) => {
-  const input = z.object({ coverLetter: z.string().trim().min(40).max(5000).optional(), amountMinor: z.number().int().positive().optional(), estimatedDuration: z.string().trim().max(80).nullable().optional() }).parse(req.body);
+  const input = z.object({ coverLetter: z.string().trim().min(40).max(5000).optional(), amountMinor: z.number().int().positive().max(2_000_000_000).optional(), estimatedDuration: z.string().trim().max(80).nullable().optional() }).parse(req.body);
   const proposal = await prisma.proposal.findUnique({ where: { id: routeParam(req.params.proposalId) } });
   invariant(proposal && proposal.freelancerId === req.auth!.userId, 404, "PROPOSAL_NOT_FOUND", "Proposal not found.");
   invariant(["SUBMITTED", "SHORTLISTED"].includes(proposal.status), 409, "INVALID_PROPOSAL_STATE", "This proposal can no longer be edited.");
@@ -39,7 +45,7 @@ proposalsRouter.patch("/proposals/:proposalId", authenticate, requireMode("FREEL
 proposalsRouter.get("/jobs/:jobId/proposals", authenticate, requireMode("CLIENT"), asyncHandler(async (req, res) => {
   const job = await prisma.job.findUnique({ where: { id: routeParam(req.params.jobId) } });
   invariant(job && job.clientId === req.auth!.userId, 404, "JOB_NOT_FOUND", "Job not found.");
-  res.json({ data: await prisma.proposal.findMany({ where: { jobId: job.id }, include: { freelancer: { select: { id: true, displayName: true, avatarUrl: true, country: true, freelancerProfile: { include: { skills: { include: { skill: true } } } } } }, milestones: true }, orderBy: { createdAt: "desc" } }) });
+  res.json({ data: await prisma.proposal.findMany({ where: { jobId: job.id }, include: { freelancer: { select: { id: true, displayName: true, avatarUrl: true, country: true, freelancerProfile: { include: { skills: { include: { skill: true } } } } } }, milestones: true, contract: true }, orderBy: { createdAt: "desc" } }) });
 }));
 
 proposalsRouter.post("/proposals/:proposalId/shortlist", authenticate, requireMode("CLIENT"), asyncHandler(async (req, res) => {

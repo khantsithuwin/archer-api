@@ -18,6 +18,7 @@
     "seed:minimal": "SEED_MODE=minimal prisma db seed",
     "seed:demo": "SEED_MODE=demo prisma db seed",
     "seed:full": "SEED_MODE=full prisma db seed",
+    "seed:both-demo": "tsx prisma/add-both-demo.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

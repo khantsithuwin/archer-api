@@ -23,6 +23,7 @@ All seeded accounts use the password `ArcherDemo123!`.
 | Administrator | `admin@archer.local` |
 | Client | `client1@archer.local` |
 | Freelancer | `freelancer1@archer.local` |
+| Client + freelancer | `both@archer.local` |
 
 The seed commands reset the configured database and are blocked when `NODE_ENV=production`:
 
@@ -31,6 +32,8 @@ npm run seed:minimal
 npm run seed:demo
 npm run seed:full
 ```
+
+The both-role account has both profiles, a published job with an incoming proposal from `freelancer1@archer.local`, a proposal on another client's job, and a saved job. To add it to an existing seeded local database without resetting other data, run `npm run seed:both-demo`. The command is idempotent and blocked in production.
 
 ## Useful commands
 
@@ -41,6 +44,7 @@ npm run seed:full
 - `npm run prisma:generate` — regenerate Prisma Client.
 - `npm run db:migrate -- --name <name>` — create a development migration.
 - `npm run db:deploy` — apply committed migrations in deployment.
+- `npm run seed:both-demo` — add the both-role account to an existing local seed without a reset.
 
 ## API surface
 
@@ -50,6 +54,8 @@ npm run seed:full
 - Work: contract offers, acceptance/completion, milestone submission/review.
 - Engagement: conversations, messages, read state, notifications, reviews, and reports.
 - Admin: metrics, report resolution, user suspension/restoration, and audit logging.
+
+Admin capabilities currently exist in the API only. The web admin workspace has not been built.
 
 Amounts are integers: USD is stored in cents and MMK in whole kyat. Archer records contract terms and approvals but does not process payments.
 

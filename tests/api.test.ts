@@ -83,3 +83,67 @@ describe("client job lifecycle", () => {
     }
   });
 });
+
+describe("both-role demo and proposal lifecycle", () => {
+  const login = async (email: string) => {
+    const response = await request(app).post("/api/v1/auth/login").send({ email, password: "ArcherDemo123!" });
+    expect(response.status).toBe(200);
+    return response.body.data.accessToken as string;
+  };
+
+  it("provides connected client and freelancer data for the both-role demo", async () => {
+    const token = await login("both@archer.local");
+    const me = await request(app).get("/api/v1/auth/me").set("authorization", `Bearer ${token}`);
+    expect(me.status).toBe(200);
+    expect(me.body.data.modes.map((entry: { mode: string }) => entry.mode).sort()).toEqual(["CLIENT", "FREELANCER"]);
+    expect(me.body.data.clientProfile).not.toBeNull();
+    expect(me.body.data.freelancerProfile).not.toBeNull();
+    const jobs = await request(app).get("/api/v1/client/jobs").set("authorization", `Bearer ${token}`);
+    const proposals = await request(app).get("/api/v1/proposals").set("authorization", `Bearer ${token}`);
+    expect(jobs.body.data.some((job: { id: string }) => job.id === "job_both_demo")).toBe(true);
+    expect(proposals.body.data.some((proposal: { id: string }) => proposal.id === "proposal_both_demo")).toBe(true);
+    const incoming = await request(app).get("/api/v1/jobs/job_both_demo/proposals").set("authorization", `Bearer ${token}`);
+    expect(incoming.status).toBe(200);
+    expect(incoming.body.data.some((proposal: { id: string; freelancerId: string }) => proposal.id === "proposal_to_both_demo" && proposal.freelancerId === "usr_freelancer_1")).toBe(true);
+  });
+
+  it("allows owner edits and withdrawal plus client shortlist and rejection", async () => {
+    const clientToken = await login("client1@archer.local");
+    const bothToken = await login("both@archer.local");
+    const otherFreelancerToken = await login("freelancer2@archer.local");
+    const categories = await request(app).get("/api/v1/categories");
+    const category = categories.body.data[0] as { id: string; skills: { id: string }[] };
+    const title = `Proposal lifecycle ${Date.now()}`;
+    const created = await request(app).post("/api/v1/jobs").set("authorization", `Bearer ${clientToken}`).send({
+      title, description: "Create a clear, accessible dashboard for a small team with tested and maintainable code.",
+      categoryId: category.id, skillIds: [category.skills[0]!.id], workType: "FIXED_PRICE", currency: "USD",
+      budgetMinMinor: 10000, budgetMaxMinor: 30000, experienceLevel: "INTERMEDIATE",
+    });
+    expect(created.status).toBe(201);
+    const jobId = created.body.data.id as string;
+    try {
+      expect((await request(app).post(`/api/v1/jobs/${jobId}/publish`).set("authorization", `Bearer ${clientToken}`).send({})).status).toBe(200);
+      const coverLetter = "I can deliver this dashboard with accessible design, tested code, and clear progress updates throughout the project.";
+      expect((await request(app).post(`/api/v1/jobs/${jobId}/proposals`).set("authorization", `Bearer ${bothToken}`).send({ coverLetter, amountMinor: 2_000_000_001 })).status).toBe(422);
+      const createdProposal = await request(app).post(`/api/v1/jobs/${jobId}/proposals`).set("authorization", `Bearer ${bothToken}`).send({ coverLetter, amountMinor: 12505 });
+      expect(createdProposal.status).toBe(201);
+      const proposalId = createdProposal.body.data.id as string;
+      expect((await request(app).get(`/api/v1/proposals/${proposalId}`).set("authorization", `Bearer ${bothToken}`)).body.data.amountMinor).toBe(12505);
+      expect((await request(app).get(`/api/v1/proposals/${proposalId}`).set("authorization", `Bearer ${otherFreelancerToken}`)).status).toBe(404);
+      expect((await request(app).get(`/api/v1/proposals/${proposalId}`).set("authorization", `Bearer ${clientToken}`)).status).toBe(403);
+      const edited = await request(app).patch(`/api/v1/proposals/${proposalId}`).set("authorization", `Bearer ${bothToken}`).send({ amountMinor: 13005 });
+      expect(edited.status).toBe(200);
+      expect(edited.body.data.amountMinor).toBe(13005);
+      expect((await request(app).post(`/api/v1/proposals/${proposalId}/shortlist`).set("authorization", `Bearer ${clientToken}`).send({})).body.data.status).toBe("SHORTLISTED");
+      expect((await request(app).post(`/api/v1/proposals/${proposalId}/reject`).set("authorization", `Bearer ${clientToken}`).send({})).body.data.status).toBe("REJECTED");
+      expect((await request(app).patch(`/api/v1/proposals/${proposalId}`).set("authorization", `Bearer ${bothToken}`).send({ amountMinor: 14005 })).status).toBe(409);
+      const otherProposal = await request(app).post(`/api/v1/jobs/${jobId}/proposals`).set("authorization", `Bearer ${otherFreelancerToken}`).send({ coverLetter, amountMinor: 14005 });
+      expect(otherProposal.status).toBe(201);
+      expect((await request(app).post(`/api/v1/proposals/${otherProposal.body.data.id}/withdraw`).set("authorization", `Bearer ${otherFreelancerToken}`).send({})).body.data.status).toBe("WITHDRAWN");
+    } finally {
+      await prisma.notification.deleteMany({ where: { body: { contains: title } } });
+      await prisma.proposal.deleteMany({ where: { jobId } });
+      await prisma.job.delete({ where: { id: jobId } });
+    }
+  });
+});

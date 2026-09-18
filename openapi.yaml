@@ -193,7 +193,49 @@ paths:
       security: [{ bearerAuth: [] }]
       summary: Submit a proposal
       parameters: [{ $ref: "#/components/parameters/JobId" }]
-      responses: { "201": { description: Proposal submitted } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProposalCreateInput" } } } }
+      responses: { "201": { description: Proposal submitted }, "422": { $ref: "#/components/responses/ValidationError" } }
+  /proposals:
+    get:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: List the current freelancer's proposals
+      responses: { "200": { description: Owned proposals } }
+  /proposals/{proposalId}:
+    get:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Get an owned proposal with job and contract context
+      parameters: [{ $ref: "#/components/parameters/ProposalId" }]
+      responses: { "200": { description: Owned proposal }, "404": { $ref: "#/components/responses/NotFound" } }
+    patch:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Edit a submitted or shortlisted proposal
+      parameters: [{ $ref: "#/components/parameters/ProposalId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProposalUpdateInput" } } } }
+      responses: { "200": { description: Updated proposal }, "409": { $ref: "#/components/responses/Conflict" }, "422": { $ref: "#/components/responses/ValidationError" } }
+  /proposals/{proposalId}/shortlist:
+    post:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Shortlist a proposal on an owned job
+      parameters: [{ $ref: "#/components/parameters/ProposalId" }]
+      responses: { "200": { description: Proposal shortlisted } }
+  /proposals/{proposalId}/withdraw:
+    post:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Withdraw an owned submitted or shortlisted proposal
+      parameters: [{ $ref: "#/components/parameters/ProposalId" }]
+      responses: { "200": { description: Proposal withdrawn } }
+  /proposals/{proposalId}/reject:
+    post:
+      tags: [Proposals]
+      security: [{ bearerAuth: [] }]
+      summary: Reject a proposal on an owned job
+      parameters: [{ $ref: "#/components/parameters/ProposalId" }]
+      responses: { "200": { description: Proposal rejected } }
   /proposals/{proposalId}/accept:
     post:
       tags: [Proposals]
@@ -322,6 +364,29 @@ components:
       type: object
       required: [email, password]
       properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+    ProposalCreateInput:
+      type: object
+      required: [coverLetter, amountMinor]
+      properties:
+        coverLetter: { type: string, minLength: 40, maxLength: 5000 }
+        amountMinor: { type: integer, minimum: 1, maximum: 2000000000, description: USD cents or whole MMK kyat in the job's currency }
+        estimatedDuration: { type: [string, "null"], maxLength: 80 }
+        milestones:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [title, amountMinor]
+            properties:
+              title: { type: string, minLength: 2, maxLength: 120 }
+              amountMinor: { type: integer, minimum: 1, maximum: 2000000000 }
+              dueAt: { type: [string, "null"], format: date-time }
+    ProposalUpdateInput:
+      type: object
+      properties:
+        coverLetter: { type: string, minLength: 40, maxLength: 5000 }
+        amountMinor: { type: integer, minimum: 1, maximum: 2000000000, description: USD cents or whole MMK kyat in the job's currency }
+        estimatedDuration: { type: [string, "null"], maxLength: 80 }
     RegisterInput:
       allOf:
         - { $ref: "#/components/schemas/LoginInput" }

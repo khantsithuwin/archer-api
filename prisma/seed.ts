@@ -2,6 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../generated/prisma/client";
+import { ensureBothDemo } from "./ensure-both-demo.js";
 
 const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./prisma/dev.db" }) });
 const mode = process.env.SEED_MODE ?? "demo";
@@ -80,6 +81,8 @@ async function seed() {
   const allUsers = ["usr_admin", ...clients.map((item) => item.id), ...freelancers.map((item) => item.id)];
   await prisma.notification.createMany({ data: Array.from({ length: sizes.notifications }, (_, i) => ({ id: `notification_${i + 1}`, userId: allUsers[(i % (allUsers.length - 1)) + 1]!, type: pick(["PROPOSAL", "CONTRACT", "MILESTONE", "MESSAGE", "REVIEW"] as const), title: "Archer activity update", body: "There is new activity in your Archer workspace.", dataJson: "{}", readAt: i % 3 ? dateBefore(10) : null, createdAt: dateBefore(30) })) });
   await prisma.report.createMany({ data: Array.from({ length: sizes.reports }, (_, i) => ({ id: `report_${i + 1}`, reporterId: allUsers[(i % (allUsers.length - 1)) + 1]!, targetType: i % 2 ? "JOB" as const : "USER" as const, targetId: i % 2 ? jobs[i % jobs.length]!.id : freelancers[i % freelancers.length]!.id, reason: pick(["Spam", "Misleading content", "Inappropriate content"]), details: "Seeded moderation report for testing the administration workflow.", status: pick(["OPEN", "IN_REVIEW", "RESOLVED", "DISMISSED"] as const), createdAt: dateBefore(60), updatedAt: new Date() })) });
+
+  await ensureBothDemo(prisma, passwordHash);
 
   console.log(`Seeded Archer (${mode}):`, sizes);
   console.log("Demo login: admin@archer.local / ArcherDemo123!");
