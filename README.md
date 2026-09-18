@@ -51,11 +51,13 @@ The both-role account has both profiles, a published job with an incoming propos
 - Authentication: register, login, refresh, logout, logout-all, email verification, password reset, and current user.
 - Profiles: client/freelancer profile management and public freelancer discovery.
 - Marketplace: categories, job discovery/CRUD/publishing, saved jobs, and proposals.
-- Work: contract offers, acceptance/completion, milestone submission/review.
+- Work: contract offers, acceptance/completion, milestone submission/review, cancellation, and disputes.
 - Engagement: conversations, messages, read state, notifications, reviews, and reports.
 - Admin: metrics, report resolution, user suspension/restoration, and audit logging.
 
-Admin capabilities currently exist in the API only. The web admin workspace has not been built.
+Admin capabilities currently exist in the API only. The web admin workspace has not been built. An administrator can resolve a disputed contract with `POST /admin/contracts/:contractId/resolve-dispute` and `{ "resolution": "RESUME" | "CANCEL", "note": "..." }`; this also resolves its open dispute report, records an audit event, and notifies both parties.
+
+For fixed-price work, all milestones must be approved before either party can request or finalize completion. Cancelling a contract closes its job and cancels unfinished milestones. Submission links must use HTTP or HTTPS. Archer records these status changes but does not transfer money.
 
 Amounts are integers: USD is stored in cents and MMK in whole kyat. Archer records contract terms and approvals but does not process payments.
 

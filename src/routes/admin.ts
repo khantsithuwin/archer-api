@@ -40,3 +40,22 @@ adminRouter.post("/users/:userId/status", asyncHandler(async (req, res) => {
   });
   res.json({ data: { id: user.id, status: user.status } });
 }));
+
+adminRouter.post("/contracts/:contractId/resolve-dispute", asyncHandler(async (req, res) => {
+  const input = z.object({ resolution: z.enum(["RESUME", "CANCEL"]), note: z.string().trim().min(10).max(2000) }).parse(req.body);
+  const contractId = routeParam(req.params.contractId);
+  const contract = await prisma.contract.findUnique({ where: { id: contractId } });
+  invariant(contract && contract.status === "DISPUTED", 409, "INVALID_CONTRACT_STATE", "Only disputed contracts can be resolved.");
+  const updated = await prisma.$transaction(async (tx) => {
+    const item = await tx.contract.update({ where: { id: contractId }, data: { status: input.resolution === "RESUME" ? "ACTIVE" : "CANCELLED", events: { create: { actorId: req.auth!.userId, type: "DISPUTE_RESOLVED", detailsJson: JSON.stringify(input) } } } });
+    if (input.resolution === "CANCEL") {
+      await tx.milestone.updateMany({ where: { contractId, status: { not: "APPROVED" } }, data: { status: "CANCELLED" } });
+      await tx.job.update({ where: { id: contract.jobId }, data: { status: "CLOSED" } });
+    }
+    await tx.report.updateMany({ where: { reason: "Contract dispute", details: { startsWith: `Contract ${contractId}:` }, status: { in: ["OPEN", "IN_REVIEW"] } }, data: { status: "RESOLVED", internalNote: input.note } });
+    await tx.adminAuditLog.create({ data: { adminId: req.auth!.userId, action: "CONTRACT_DISPUTE_RESOLVED", targetType: "CONTRACT", targetId: contractId, detailsJson: JSON.stringify(input) } });
+    await tx.notification.createMany({ data: [contract.clientId, contract.freelancerId].map((userId) => ({ userId, type: "CONTRACT" as const, title: "Dispute resolved", body: `${contract.title} is ${input.resolution === "RESUME" ? "active again" : "cancelled"}.`, dataJson: JSON.stringify({ contractId }) })) });
+    return item;
+  });
+  res.json({ data: { id: updated.id, status: updated.status } });
+}));

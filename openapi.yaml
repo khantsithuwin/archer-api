@@ -267,23 +267,41 @@ paths:
     post:
       tags: [Contracts]
       security: [{ bearerAuth: [] }]
-      summary: Request or finalize completion
+      summary: Freelancer requests completion or client finalizes it after all fixed-price milestones are approved
       parameters: [{ $ref: "#/components/parameters/ContractId" }]
-      responses: { "200": { description: Updated contract } }
+      responses: { "200": { description: Updated contract }, "409": { $ref: "#/components/responses/Conflict" } }
+  /contracts/{contractId}/cancel:
+    post:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Cancel an offer or contract, close its job, and record a reason
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ContractReason" } } } }
+      responses: { "200": { description: Cancelled contract }, "409": { $ref: "#/components/responses/Conflict" } }
+  /contracts/{contractId}/dispute:
+    post:
+      tags: [Contracts]
+      security: [{ bearerAuth: [] }]
+      summary: Dispute an active contract and create a moderation report
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ContractDispute" } } } }
+      responses: { "200": { description: Disputed contract }, "409": { $ref: "#/components/responses/Conflict" } }
   /milestones/{milestoneId}/submit:
     post:
       tags: [Contracts]
       security: [{ bearerAuth: [] }]
       summary: Submit milestone deliverables
       parameters: [{ $ref: "#/components/parameters/MilestoneId" }]
-      responses: { "201": { description: Submission created } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/MilestoneSubmissionInput" } } } }
+      responses: { "201": { description: Submission created }, "409": { $ref: "#/components/responses/Conflict" } }
   /milestones/{milestoneId}/review:
     post:
       tags: [Contracts]
       security: [{ bearerAuth: [] }]
       summary: Approve a submission or request changes
       parameters: [{ $ref: "#/components/parameters/MilestoneId" }]
-      responses: { "200": { description: Milestone updated } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/MilestoneReviewInput" } } } }
+      responses: { "200": { description: Milestone updated }, "409": { $ref: "#/components/responses/Conflict" } }
   /conversations:
     get:
       tags: [Messaging]
@@ -333,6 +351,14 @@ paths:
       security: [{ bearerAuth: [] }]
       summary: Get platform counts
       responses: { "200": { description: Metrics }, "403": { $ref: "#/components/responses/Forbidden" } }
+  /admin/contracts/{contractId}/resolve-dispute:
+    post:
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      summary: Resume or cancel a disputed contract after administrator review
+      parameters: [{ $ref: "#/components/parameters/ContractId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/DisputeResolution" } } } }
+      responses: { "200": { description: Dispute resolved }, "403": { $ref: "#/components/responses/Forbidden" }, "409": { $ref: "#/components/responses/Conflict" } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -387,6 +413,32 @@ components:
         coverLetter: { type: string, minLength: 40, maxLength: 5000 }
         amountMinor: { type: integer, minimum: 1, maximum: 2000000000, description: USD cents or whole MMK kyat in the job's currency }
         estimatedDuration: { type: [string, "null"], maxLength: 80 }
+    ContractReason:
+      type: object
+      required: [reason]
+      properties: { reason: { type: string, minLength: 10, maxLength: 2000 } }
+    ContractDispute:
+      type: object
+      required: [reason]
+      properties: { reason: { type: string, minLength: 10, maxLength: 3000 } }
+    DisputeResolution:
+      type: object
+      required: [resolution, note]
+      properties:
+        resolution: { type: string, enum: [RESUME, CANCEL] }
+        note: { type: string, minLength: 10, maxLength: 2000 }
+    MilestoneSubmissionInput:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, minLength: 3, maxLength: 5000 }
+        deliverableUrls: { type: array, maxItems: 20, items: { type: string, format: uri, pattern: '^https?://' } }
+    MilestoneReviewInput:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [APPROVE, REQUEST_CHANGES] }
+        message: { type: string, maxLength: 2000, description: Required with at least 10 characters when requesting changes }
     RegisterInput:
       allOf:
         - { $ref: "#/components/schemas/LoginInput" }

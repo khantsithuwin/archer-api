@@ -147,3 +147,115 @@ describe("both-role demo and proposal lifecycle", () => {
     }
   });
 });
+
+describe("contract lifecycle", () => {
+  const login = async (email: string) => {
+    const response = await request(app).post("/api/v1/auth/login").send({ email, password: "ArcherDemo123!" });
+    expect(response.status).toBe(200);
+    return response.body.data.accessToken as string;
+  };
+  const createContract = async (title: string) => {
+    const clientToken = await login("client1@archer.local");
+    const freelancerToken = await login("freelancer1@archer.local");
+    const categories = await request(app).get("/api/v1/categories");
+    const category = categories.body.data[0] as { id: string; skills: { id: string }[] };
+    const job = await request(app).post("/api/v1/jobs").set("authorization", `Bearer ${clientToken}`).send({
+      title, description: "Build a clear, accessible project dashboard with a tested implementation and a documented handoff.",
+      categoryId: category.id, skillIds: [category.skills[0]!.id], workType: "FIXED_PRICE", currency: "USD",
+      budgetMinMinor: 12000, budgetMaxMinor: 25000, experienceLevel: "INTERMEDIATE",
+    });
+    expect(job.status).toBe(201);
+    const jobId = job.body.data.id as string;
+    expect((await request(app).post(`/api/v1/jobs/${jobId}/publish`).set("authorization", `Bearer ${clientToken}`).send({})).status).toBe(200);
+    const proposal = await request(app).post(`/api/v1/jobs/${jobId}/proposals`).set("authorization", `Bearer ${freelancerToken}`).send({
+      coverLetter: "I can deliver this dashboard with clear milestones, accessible components, tested behavior, and regular progress updates.", amountMinor: 15005,
+    });
+    expect(proposal.status).toBe(201);
+    const offer = await request(app).post(`/api/v1/proposals/${proposal.body.data.id}/accept`).set("authorization", `Bearer ${clientToken}`).send({});
+    expect(offer.status).toBe(201);
+    expect(offer.body.data.status).toBe("PENDING_ACCEPTANCE");
+    return { clientToken, freelancerToken, jobId, contractId: offer.body.data.id as string, milestoneId: offer.body.data.milestones[0].id as string };
+  };
+  const cleanup = async (jobId: string, contractId: string, title: string) => {
+    await prisma.notification.deleteMany({ where: { OR: [{ body: { contains: title } }, { dataJson: { contains: contractId } }] } });
+    await prisma.report.deleteMany({ where: { details: { contains: contractId } } });
+    await prisma.adminAuditLog.deleteMany({ where: { targetType: "CONTRACT", targetId: contractId } });
+    await prisma.contract.delete({ where: { id: contractId } });
+    await prisma.proposal.deleteMany({ where: { jobId } });
+    await prisma.job.delete({ where: { id: jobId } });
+  };
+
+  it("submits, revises, approves, and completes fixed-price work with ownership checks", async () => {
+    const title = `Contract completion ${Date.now()}`;
+    const { clientToken, freelancerToken, jobId, contractId, milestoneId } = await createContract(title);
+    try {
+      const otherToken = await login("freelancer2@archer.local");
+      expect((await request(app).get(`/api/v1/contracts/${contractId}`).set("authorization", `Bearer ${otherToken}`)).status).toBe(404);
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/accept`).set("authorization", `Bearer ${clientToken}`).send({})).status).toBe(403);
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/accept`).set("authorization", `Bearer ${freelancerToken}`).send({})).body.data.status).toBe("ACTIVE");
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/complete`).set("authorization", `Bearer ${freelancerToken}`).send({})).status).toBe(409);
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/complete`).set("authorization", `Bearer ${clientToken}`).send({})).status).toBe(409);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${otherToken}`).send({ message: "Ready for review" })).status).toBe(404);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${freelancerToken}`).send({ message: "Ready for review", deliverableUrls: ["javascript:alert(1)"] })).status).toBe(422);
+      const submitted = await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${freelancerToken}`).send({ message: "Initial dashboard delivery is ready.", deliverableUrls: ["https://example.com/delivery"] });
+      expect(submitted.status).toBe(201);
+      const work = await request(app).get(`/api/v1/contracts/${contractId}`).set("authorization", `Bearer ${clientToken}`);
+      expect(work.body.data.milestones[0].status).toBe("SUBMITTED");
+      expect(JSON.parse(work.body.data.milestones[0].submissions[0].deliverablesJson)).toEqual(["https://example.com/delivery"]);
+      expect(work.body.data.events.some((event: { type: string }) => event.type === "MILESTONE_SUBMITTED")).toBe(true);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/review`).set("authorization", `Bearer ${clientToken}`).send({ decision: "REQUEST_CHANGES", message: "Too short" })).status).toBe(422);
+      const changes = await request(app).post(`/api/v1/milestones/${milestoneId}/review`).set("authorization", `Bearer ${clientToken}`).send({ decision: "REQUEST_CHANGES", message: "Please improve keyboard navigation." });
+      expect(changes.body.data.status).toBe("CHANGES_REQUESTED");
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${freelancerToken}`).send({ message: "Keyboard navigation has been updated." })).status).toBe(201);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/review`).set("authorization", `Bearer ${clientToken}`).send({ decision: "APPROVE", message: "Looks good." })).body.data.status).toBe("APPROVED");
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/complete`).set("authorization", `Bearer ${freelancerToken}`).send({})).body.data.status).toBe("COMPLETION_REQUESTED");
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/complete`).set("authorization", `Bearer ${freelancerToken}`).send({})).status).toBe(409);
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/complete`).set("authorization", `Bearer ${clientToken}`).send({})).body.data.status).toBe("COMPLETED");
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${clientToken}`)).body.data.status).toBe("COMPLETED");
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/cancel`).set("authorization", `Bearer ${clientToken}`).send({ reason: "This project is no longer needed." })).status).toBe(409);
+    } finally { await cleanup(jobId, contractId, title); }
+  });
+
+  it("cancels an offer with a reason and closes unfinished work", async () => {
+    const title = `Contract cancellation ${Date.now()}`;
+    const { freelancerToken, clientToken, jobId, contractId, milestoneId } = await createContract(title);
+    try {
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/cancel`).set("authorization", `Bearer ${freelancerToken}`).send({ reason: "Too short" })).status).toBe(422);
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/dispute`).set("authorization", `Bearer ${freelancerToken}`).send({ reason: "The agreed work cannot continue." })).status).toBe(409);
+      const cancelled = await request(app).post(`/api/v1/contracts/${contractId}/cancel`).set("authorization", `Bearer ${freelancerToken}`).send({ reason: "The agreed work cannot continue." });
+      expect(cancelled.body.data.status).toBe("CANCELLED");
+      const detail = await request(app).get(`/api/v1/contracts/${contractId}`).set("authorization", `Bearer ${clientToken}`);
+      expect(detail.body.data.milestones[0].status).toBe("CANCELLED");
+      expect(detail.body.data.events.some((event: { type: string; detailsJson: string }) => event.type === "CONTRACT_CANCELLED" && JSON.parse(event.detailsJson).reason === "The agreed work cannot continue.")).toBe(true);
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${clientToken}`)).body.data.status).toBe("CLOSED");
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${freelancerToken}`).send({ message: "Work ready" })).status).toBe(409);
+    } finally { await cleanup(jobId, contractId, title); }
+  });
+
+  it("pauses a disputed contract and links the moderation report", async () => {
+    const title = `Contract dispute ${Date.now()}`;
+    const { clientToken, freelancerToken, jobId, contractId, milestoneId } = await createContract(title);
+    try {
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/accept`).set("authorization", `Bearer ${freelancerToken}`).send({})).status).toBe(200);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${freelancerToken}`).send({ message: "Initial delivery is ready for review." })).status).toBe(201);
+      const disputed = await request(app).post(`/api/v1/contracts/${contractId}/dispute`).set("authorization", `Bearer ${clientToken}`).send({ reason: "The agreed delivery has stopped without an update." });
+      expect(disputed.body.data.status).toBe("DISPUTED");
+      expect(await prisma.report.count({ where: { details: { contains: contractId } } })).toBe(1);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/review`).set("authorization", `Bearer ${clientToken}`).send({ decision: "APPROVE" })).status).toBe(409);
+      expect((await request(app).post(`/api/v1/milestones/${milestoneId}/submit`).set("authorization", `Bearer ${freelancerToken}`).send({ message: "Work ready" })).status).toBe(409);
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/cancel`).set("authorization", `Bearer ${clientToken}`).send({ reason: "The agreed work cannot continue." })).status).toBe(409);
+      const adminToken = await login("admin@archer.local");
+      expect((await request(app).post(`/api/v1/admin/contracts/${contractId}/resolve-dispute`).set("authorization", `Bearer ${clientToken}`).send({ resolution: "RESUME", note: "We reviewed the delivery issue." })).status).toBe(403);
+      expect((await request(app).post(`/api/v1/admin/contracts/${contractId}/resolve-dispute`).set("authorization", `Bearer ${adminToken}`).send({ resolution: "RESUME", note: "Too short" })).status).toBe(422);
+      const resumed = await request(app).post(`/api/v1/admin/contracts/${contractId}/resolve-dispute`).set("authorization", `Bearer ${adminToken}`).send({ resolution: "RESUME", note: "The project may safely continue." });
+      expect(resumed.body.data.status).toBe("ACTIVE");
+      expect((await prisma.report.findFirst({ where: { details: { contains: contractId } } }))?.status).toBe("RESOLVED");
+      expect((await request(app).post(`/api/v1/contracts/${contractId}/dispute`).set("authorization", `Bearer ${freelancerToken}`).send({ reason: "The project cannot continue safely." })).body.data.status).toBe("DISPUTED");
+      const cancelled = await request(app).post(`/api/v1/admin/contracts/${contractId}/resolve-dispute`).set("authorization", `Bearer ${adminToken}`).send({ resolution: "CANCEL", note: "The project should be closed after review." });
+      expect(cancelled.body.data.status).toBe("CANCELLED");
+      expect((await request(app).get(`/api/v1/client/jobs/${jobId}`).set("authorization", `Bearer ${clientToken}`)).body.data.status).toBe("CLOSED");
+      expect(await prisma.report.count({ where: { details: { contains: contractId }, status: "RESOLVED" } })).toBe(2);
+      expect(await prisma.adminAuditLog.count({ where: { targetType: "CONTRACT", targetId: contractId } })).toBe(2);
+    } finally { await cleanup(jobId, contractId, title); }
+  });
+});
