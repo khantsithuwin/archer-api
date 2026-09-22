@@ -15,8 +15,17 @@ describe("Archer API", () => {
   it("rejects invalid credentials with the stable error envelope", async () => {
     const response = await request(app).post("/api/v1/auth/login").send({ email: "nobody@example.com", password: "incorrect-password" });
     expect(response.status).toBe(401);
+    expect(response.headers["content-language"]).toBe("en");
     expect(response.body.error.code).toBe("INVALID_CREDENTIALS");
     expect(response.body.error.requestId).toBeTypeOf("string");
+  });
+
+  it("localizes errors from Accept-Language without changing stable codes", async () => {
+    const response = await request(app).post("/api/v1/auth/login").set("accept-language", "my").send({ email: "nobody@example.com", password: "incorrect-password" });
+    expect(response.status).toBe(401);
+    expect(response.headers["content-language"]).toBe("my");
+    expect(response.body.error.code).toBe("INVALID_CREDENTIALS");
+    expect(response.body.error.message).toBe("အီးမေးလ် သို့မဟုတ် စကားဝှက် မမှန်ပါ။");
   });
 
   it("logs in a seeded admin and authorizes metrics", async () => {

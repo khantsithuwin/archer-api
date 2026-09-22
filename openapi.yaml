@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Archer API
   version: 0.1.0
-  description: API for the Archer freelance marketplace. Amounts use integer minor units; Archer does not process payments.
+  description: API for the Archer freelance marketplace. Amounts use integer minor units; Archer does not process payments. Error messages are localized to English or Burmese from Accept-Language while machine-readable error codes remain stable. Unsupported or missing locales fall back to English, and localized error responses include Content-Language.
 servers:
   - url: http://localhost:4000/api/v1
 tags:
@@ -363,6 +363,12 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   parameters:
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      description: Preferred error-message language. Supported values are `en` and `my`; defaults to `en`.
+      schema: { type: string, enum: [en, my], default: en }
     Username: { name: username, in: path, required: true, schema: { type: string } }
     JobId: { name: jobId, in: path, required: true, schema: { type: string } }
     ProposalId: { name: proposalId, in: path, required: true, schema: { type: string } }

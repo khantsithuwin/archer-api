@@ -14,6 +14,8 @@ npm run dev
 
 The API is served at `http://localhost:4000/api/v1`. Check `/health/live` and `/health/ready` for health status.
 
+Send `Accept-Language: en` or `Accept-Language: my` to localize human-readable error messages. Error `code` values remain stable for clients, unsupported locales fall back to English, and localized error responses include `Content-Language`.
+
 ## Demo accounts
 
 All seeded accounts use the password `ArcherDemo123!`.
