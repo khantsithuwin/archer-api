@@ -1,10 +1,32 @@
 import request from "supertest";
+import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 
 const app = createApp();
 afterAll(() => prisma.$disconnect());
+
+const testIp = () => `198.51.${Math.floor(Math.random() * 256)}.${1 + Math.floor(Math.random() * 254)}`;
+
+const registerTestUser = async (modes: ("CLIENT" | "FREELANCER")[] = ["FREELANCER"]) => {
+  const email = `auth-${randomUUID()}@example.test`;
+  const response = await request(app)
+    .post("/api/v1/auth/register")
+    .set("x-forwarded-for", testIp())
+    .set("x-client-platform", "mobile")
+    .send({ displayName: "Auth Test", email, password: "test-password-123", modes });
+  expect(response.status).toBe(201);
+  return { email, data: response.body.data as { user: { id: string; email: string; modes: string[] }; accessToken: string; refreshToken: string; verificationToken?: string } };
+};
+
+const removeTestUser = async (email: string) => {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return;
+  await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
+  await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+  await prisma.user.delete({ where: { id: user.id } });
+};
 
 describe("Archer API", () => {
   it("reports liveness and readiness", async () => {
@@ -43,6 +65,69 @@ describe("Archer API", () => {
     expect(response.body.data).toHaveLength(5);
     expect(response.body.data.every((job: { currency: string }) => job.currency === "USD")).toBe(true);
     expect(response.body.meta.total).toBeGreaterThan(0);
+  });
+});
+
+describe("authentication and sessions", () => {
+  it("registers normalized credentials without exposing private account fields and blocks duplicate email", async () => {
+    const email = `auth-${randomUUID()}@example.test`;
+    try {
+      const created = await request(app).post("/api/v1/auth/register").set("x-forwarded-for", testIp()).send({
+        displayName: "  Auth Test  ", email: email.toUpperCase(), password: "test-password-123", modes: ["CLIENT", "CLIENT"],
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      expect(created.body.data.user.email).toBe(email);
+      expect(created.body.data.user.displayName).toBe("Auth Test");
+      expect(created.body.data.user.modes).toEqual(["CLIENT"]);
+      expect(created.body.data.user).not.toHaveProperty("passwordHash");
+      expect(created.body.data.user).not.toHaveProperty("tokenVersion");
+      expect(created.body.data).not.toHaveProperty("refreshToken");
+      expect(created.body.data.verificationToken).toBeTypeOf("string");
+
+      const duplicate = await request(app).post("/api/v1/auth/register").set("x-forwarded-for", testIp()).send({
+        displayName: "Duplicate", email, password: "test-password-123", modes: ["CLIENT"],
+      });
+      expect(duplicate.status).toBe(409);
+      expect(duplicate.body.error.code).toBe("EMAIL_TAKEN");
+    } finally {
+      await removeTestUser(email);
+    }
+  });
+
+  it("rotates refresh tokens and revokes the whole family when an old token is reused", async () => {
+    const { email, data } = await registerTestUser();
+    try {
+      const rotated = await request(app).post("/api/v1/auth/refresh").set("x-forwarded-for", testIp()).set("x-client-platform", "mobile").send({ refreshToken: data.refreshToken });
+      expect(rotated.status).toBe(200);
+      expect(rotated.body.data.refreshToken).toBeTypeOf("string");
+      expect(rotated.body.data.refreshToken).not.toBe(data.refreshToken);
+
+      const replay = await request(app).post("/api/v1/auth/refresh").set("x-forwarded-for", testIp()).set("x-client-platform", "mobile").send({ refreshToken: data.refreshToken });
+      expect(replay.status).toBe(401);
+      expect(replay.body.error.code).toBe("REFRESH_TOKEN_REUSED");
+
+      const staleAccess = await request(app).get("/api/v1/auth/me").set("x-forwarded-for", testIp()).set("authorization", `Bearer ${rotated.body.data.accessToken}`);
+      expect(staleAccess.status).toBe(401);
+    } finally {
+      await removeTestUser(email);
+    }
+  });
+
+  it("logout-all revokes every issued access session and role checks deny the wrong mode", async () => {
+    const { email, data } = await registerTestUser(["FREELANCER"]);
+    try {
+      const secondLogin = await request(app).post("/api/v1/auth/login").set("x-forwarded-for", testIp()).set("x-client-platform", "mobile").send({ email, password: "test-password-123" });
+      expect(secondLogin.status).toBe(200);
+      const deniedProfile = await request(app).put("/api/v1/client-profile").set("x-forwarded-for", testIp()).set("authorization", `Bearer ${data.accessToken}`).send({ isCompany: false });
+      expect(deniedProfile.status).toBe(403);
+
+      const logoutAll = await request(app).post("/api/v1/auth/logout-all").set("x-forwarded-for", testIp()).set("authorization", `Bearer ${data.accessToken}`).send({});
+      expect(logoutAll.status).toBe(204);
+      expect((await request(app).get("/api/v1/auth/me").set("x-forwarded-for", testIp()).set("authorization", `Bearer ${data.accessToken}`)).status).toBe(401);
+      expect((await request(app).get("/api/v1/auth/me").set("x-forwarded-for", testIp()).set("authorization", `Bearer ${secondLogin.body.data.accessToken}`)).status).toBe(401);
+    } finally {
+      await removeTestUser(email);
+    }
   });
 });
 
