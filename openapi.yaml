@@ -181,6 +181,13 @@ paths:
       summary: Unsave a job
       parameters: [{ $ref: "#/components/parameters/JobId" }]
       responses: { "204": { description: Removed } }
+  /saved-jobs:
+    get:
+      tags: [Jobs]
+      security: [{ bearerAuth: [] }]
+      summary: List the current freelancer's saved jobs
+      description: Returns saved-job records in newest-first order, each with its job, category, and skills. Jobs may no longer be open.
+      responses: { "200": { description: Saved jobs }, "403": { $ref: "#/components/responses/Forbidden" } }
   /jobs/{jobId}/proposals:
     get:
       tags: [Proposals]
